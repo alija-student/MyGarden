@@ -1,0 +1,57 @@
+# Local development services.
+#   docker compose up -d                   -> PostgreSQL only
+#   docker compose --profile tools up -d   -> + pgAdmin (http://localhost:5050)
+#   docker compose --profile app up -d     -> + API and web app in containers
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mygarden}
+      POSTGRES_USER: ${POSTGRES_USER:-mygarden}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mygarden}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    profiles: [tools]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@mygarden.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    profiles: [app]
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-mygarden};Username=${POSTGRES_USER:-mygarden};Password=${POSTGRES_PASSWORD:-mygarden}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    profiles: [app]
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

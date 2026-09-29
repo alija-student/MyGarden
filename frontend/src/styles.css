@@ -1,0 +1,12 @@
+:root {
+  --leaf: #2f7d32;
+  --soil: #d8c6a0;
+  --ink: #1f2a1f;
+  font-family: system-ui, sans-serif;
+  color: var(--ink);
+}
+
+body {
+  margin: 0;
+  background: #f6f8f3;
+}

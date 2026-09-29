@@ -1,0 +1,28 @@
+# Secrets
+.env
+*.local.json
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+TestResults/
+*.trx
+coverage*.xml
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+out-tsc/
+coverage/
+
+# IDEs / OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,18 @@
+@host = http://localhost:5080
+
+GET {{host}}/api/health
+
+###
+
+GET {{host}}/api/gardens
+
+###
+
+POST {{host}}/api/gardens
+Content-Type: application/json
+
+{
+  "name": "Backyard vegetable patch",
+  "widthCm": 400,
+  "lengthCm": 250
+}
