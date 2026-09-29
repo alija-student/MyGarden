@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyGarden.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
@@ -24,8 +25,7 @@ public class MyGardenApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MyGardenDbContext>();
-        // Swap to db.Database.MigrateAsync() once the first migration exists
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
     }
 
     public new async Task DisposeAsync()

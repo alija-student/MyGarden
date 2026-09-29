@@ -99,8 +99,8 @@ Migrations live in `backend/src/MyGarden.Infrastructure/Persistence/Migrations`.
 Run these from the `backend/` folder:
 
 ```bash
-# Create a migration after changing entities
-dotnet ef migrations add InitialCreate \
+# Create a migration after changing entities (use a descriptive name)
+dotnet ef migrations add AddPlantNotes \
   --project src/MyGarden.Infrastructure \
   --startup-project src/MyGarden.Api \
   --output-dir Persistence/Migrations
@@ -111,8 +111,8 @@ dotnet ef database update \
   --startup-project src/MyGarden.Api
 ```
 
-After the first migration exists, switch `EnsureCreatedAsync()` to `MigrateAsync()` in
-`tests/MyGarden.IntegrationTests/MyGardenApiFactory.cs`.
+The integration tests apply all migrations to a fresh PostgreSQL container, so a broken
+migration fails CI.
 
 ## Tests
 
