@@ -37,6 +37,7 @@ services:
     profiles: [app]
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-mygarden};Username=${POSTGRES_USER:-mygarden};Password=${POSTGRES_PASSWORD:-mygarden}
+      Database__MigrateOnStartup: "true"
     ports:
       - "8080:8080"
     depends_on:

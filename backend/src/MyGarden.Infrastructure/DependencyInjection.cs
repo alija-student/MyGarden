@@ -18,4 +18,12 @@ public static class DependencyInjection
         services.AddScoped<IGardenRepository, GardenRepository>();
         return services;
     }
+
+    /// <summary>Applies pending EF Core migrations (EF takes a database lock, so parallel replicas are safe).</summary>
+    public static async Task MigrateDatabaseAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MyGardenDbContext>();
+        await db.Database.MigrateAsync(ct);
+    }
 }

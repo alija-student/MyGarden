@@ -12,6 +12,12 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
+// Containers (docker compose, Leocloud) have nobody to run `dotnet ef database update`
+if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+{
+    await app.Services.MigrateDatabaseAsync();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi(); // /openapi/v1.json
