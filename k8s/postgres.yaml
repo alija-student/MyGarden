@@ -1,0 +1,79 @@
+# PostgreSQL for MyGarden on Leocloud.
+# Credentials come from the "mygarden-db" secret, which the deploy workflow creates
+# from the POSTGRES_PASSWORD repository secret.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mygarden-db-data
+  labels:
+    app.kubernetes.io/part-of: mygarden
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  labels:
+    app.kubernetes.io/name: db
+    app.kubernetes.io/part-of: mygarden
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # only one pod may use the volume at a time
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db
+        app.kubernetes.io/part-of: mygarden
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: mygarden
+            - name: POSTGRES_USER
+              value: mygarden
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mygarden-db
+                  key: password
+            # Subfolder, because the volume root may contain lost+found
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "mygarden", "-d", "mygarden"]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mygarden-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  labels:
+    app.kubernetes.io/part-of: mygarden
+spec:
+  selector:
+    app.kubernetes.io/name: db
+  ports:
+    - port: 5432

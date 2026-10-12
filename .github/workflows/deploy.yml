@@ -1,0 +1,146 @@
+name: Deploy
+
+# Runs after CI succeeded on main (or manually): builds the images, pushes them
+# to GitHub Container Registry and deploys them to Leocloud (Kubernetes).
+#
+# Leocloud setup (repository Settings -> Secrets and variables -> Actions):
+#   secret   KUBECONFIG         kubeconfig file content from Leocloud
+#   secret   POSTGRES_PASSWORD  password for the production database
+#   secret   GHCR_PULL_TOKEN    (optional) PAT with read:packages, only if the images stay private
+#   variable LEOCLOUD_HOST      public host name, e.g. <user>.cloud.htl-leonding.ac.at
+#   variable LEOCLOUD_NAMESPACE (optional) namespace, defaults to the kubeconfig's namespace
+# Until KUBECONFIG is set, only the images are built and pushed.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  images:
+    name: Build and push images
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.names.outputs.api }}
+      web: ${{ steps.names.outputs.web }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Image names
+        id: names
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"   # registry names must be lowercase
+          echo "api=$REGISTRY/$owner/mygarden-api:$SHA" >> "$GITHUB_OUTPUT"
+          echo "web=$REGISTRY/$owner/mygarden-web:$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        env:
+          API: ${{ steps.names.outputs.api }}
+          WEB: ${{ steps.names.outputs.web }}
+        run: |
+          docker build -f docker/Dockerfile.api -t "$API" -t "${API%:*}:latest" .
+          docker build -f docker/Dockerfile.web -t "$WEB" -t "${WEB%:*}:latest" .
+          docker push --all-tags "${API%:*}"
+          docker push --all-tags "${WEB%:*}"
+
+  deploy:
+    name: Deploy to Leocloud
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: config
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+          HOST: ${{ vars.LEOCLOUD_HOST }}
+        run: |
+          if [ -z "$KUBECONFIG_CONTENT" ] || [ -z "$HOST" ]; then
+            echo "::notice::KUBECONFIG secret or LEOCLOUD_HOST variable not set - skipping deployment."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.config.outputs.enabled == 'true'
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Configure kubectl
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+          NAMESPACE: ${{ vars.LEOCLOUD_NAMESPACE }}
+        run: |
+          mkdir -p ~/.kube
+          printf '%s' "$KUBECONFIG_CONTENT" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          if [ -n "$NAMESPACE" ]; then kubectl config set-context --current --namespace="$NAMESPACE"; fi
+          kubectl version
+
+      - name: Create or update secrets
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+        run: |
+          if [ -z "$POSTGRES_PASSWORD" ]; then echo "::error::POSTGRES_PASSWORD secret is missing"; exit 1; fi
+          kubectl create secret generic mygarden-db --from-literal=password="$POSTGRES_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "$GHCR_PULL_TOKEN" ]; then
+            kubectl create secret docker-registry ghcr --docker-server=ghcr.io \
+              --docker-username="${{ github.repository_owner }}" --docker-password="$GHCR_PULL_TOKEN" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
+      - name: Apply manifests
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          API_IMAGE: ${{ needs.images.outputs.api }}
+          WEB_IMAGE: ${{ needs.images.outputs.web }}
+          LEOCLOUD_HOST: ${{ vars.LEOCLOUD_HOST }}
+        run: |
+          for f in k8s/*.yaml; do
+            # Single quotes on purpose: envsubst gets the variable names, not their values
+            # shellcheck disable=SC2016
+            envsubst '${API_IMAGE} ${WEB_IMAGE} ${LEOCLOUD_HOST}' < "$f" | kubectl apply -f -
+          done
+
+      - name: Wait for rollout
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          kubectl rollout status deployment/db --timeout=180s
+          kubectl rollout status deployment/api --timeout=180s
+          kubectl rollout status deployment/web --timeout=120s
+
+      - name: Smoke test
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          HOST: ${{ vars.LEOCLOUD_HOST }}
+        run: |
+          for _ in $(seq 1 12); do
+            curl -fsS "https://$HOST/api/health" && exit 0
+            sleep 5
+          done
+          echo "::error::https://$HOST/api/health did not respond"
+          exit 1

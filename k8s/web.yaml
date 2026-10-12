@@ -1,0 +1,66 @@
+# Angular app served by nginx, which also proxies /api/ to the api service.
+# ${WEB_IMAGE} and ${LEOCLOUD_HOST} are filled in by the deploy workflow (envsubst).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: mygarden
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+        app.kubernetes.io/part-of: mygarden
+    spec:
+      imagePullSecrets:
+        - name: ghcr # optional, only needed while the GHCR packages are private
+      containers:
+        - name: web
+          image: ${WEB_IMAGE}
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/part-of: mygarden
+spec:
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mygarden
+  labels:
+    app.kubernetes.io/part-of: mygarden
+spec:
+  rules:
+    - host: ${LEOCLOUD_HOST}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
