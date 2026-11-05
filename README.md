@@ -70,7 +70,7 @@ The backend follows a layered ("clean") architecture: `Api → Application → D
 
 ```bash
 # 1. Environment variables
-cp .env.example .env            # then edit the passwords
+cp .env.example .env            # works as is - see the note below before changing passwords
 
 # 2. Frontend dependencies (exact versions from package-lock.json)
 cd frontend
@@ -81,7 +81,22 @@ npx playwright install chromium
 cd ..
 ```
 
+> **Database password:** The local default is `mygarden`, the same password that
+> `appsettings.Development.json` uses. `dotnet run` does **not** read `.env`. If you change
+> `POSTGRES_PASSWORD` (or `POSTGRES_PORT`), also update `ConnectionStrings__Default` in `.env`
+> and load it into your terminal before `dotnet run`:
+>
+> ```powershell
+> $env:ConnectionStrings__Default = ((Get-Content .env | Select-String '^ConnectionStrings__Default=').Line -split '=',2)[1]
+> ```
+>
+> Postgres only sets the password when the `pgdata` volume is first created. To reset it:
+> `docker compose down -v` (deletes all local data).
+
 ## Running locally
+
+Docker Desktop must be running. Run all commands from the repository root (the folder that
+contains `docker-compose.yml`).
 
 ```bash
 # 1. Start PostgreSQL (add "--profile tools" for pgAdmin on http://localhost:5050)
@@ -89,13 +104,15 @@ docker compose up -d
 
 # 2. Start the API -> http://localhost:5080  (OpenAPI: /openapi/v1.json)
 #    Pending migrations are applied automatically on startup.
-cd backend
-dotnet run --project src/MyGarden.Api
+dotnet run --project backend/src/MyGarden.Api
 
 # 3. Start the frontend in a second terminal -> http://localhost:4200
 cd frontend
 npm start
 ```
+
+Ports used: 5432 (PostgreSQL), 5080 (API), 4200 (frontend), 5050 (pgAdmin),
+8080/8081 (API/web in containers). If 5432 is taken, change `POSTGRES_PORT` as described above.
 
 `ng serve` forwards all `/api` requests to the backend (`proxy.conf.json`), so there are no CORS issues.
 `backend/src/MyGarden.Api/MyGarden.Api.http` has sample requests you can run from VS Code / Rider / Visual Studio.
